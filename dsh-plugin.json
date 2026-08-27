@@ -18,7 +18,22 @@
         "apiVersion": "browser.ui.dsh/v1alpha1",
         "kind": "LocalModule",
         "spec": {
-          "module": "./lib/client.js"
+          "module": "./lib/client.js",
+          "requirements": [
+            {
+              "apiVersion": "ui.dsh/v1alpha1",
+              "kind": "ContributionHost",
+              "spec": {
+                "surfaces": [
+                  {
+                    "apiVersion": "browser.ui.dsh/v1alpha1",
+                    "kind": "SettingsSection",
+                    "mode": "local-module"
+                  }
+                ]
+              }
+            }
+          ]
         }
       }
     ]
