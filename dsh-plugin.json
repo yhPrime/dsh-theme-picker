@@ -7,7 +7,7 @@
   "facets": {
     "host": {
       "entry": "./lib/index.js",
-      "apiVersion": "lifecycle.dsh/v1alpha1"
+      "apiVersion": "v1alpha1"
     }
   },
   "contributes": {
