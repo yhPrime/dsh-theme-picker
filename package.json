@@ -1,7 +1,7 @@
 {
   "name": "dsh-theme-picker",
-  "description": "Theme picker settings section: switch app themes and manage installed theme plugins through the dsh-market API.",
-  "version": "1.0.0",
+  "description": "DSH Standard 标准组件：在设置页提供已安装主题插件的列表与开关（主题选择器）。",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
@@ -10,13 +10,12 @@
     "./client": "./lib/client.js",
     "./package.json": "./package.json"
   },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "inject": [],
-      "platform": "web"
-    }
-  }
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "dsh-plugin.json",
+    "LICENSE",
+    "README.md"
+  ],
+  "license": "MIT"
 }

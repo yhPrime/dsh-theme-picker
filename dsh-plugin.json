@@ -1,0 +1,30 @@
+{
+  "$schema": "https://dsh-standard.dev/schemas/dsh-plugin-0.15.schema.json",
+  "manifestVersion": "0.15",
+  "id": "dsh-theme-picker",
+  "name": "主题选择器",
+  "version": "1.1.0",
+  "facets": {
+    "host": {
+      "entry": "./lib/index.js",
+      "apiVersion": "lifecycle.dsh/v1alpha1"
+    }
+  },
+  "contributes": {
+    "x-browser": [
+      {
+        "id": "theme-picker-settings",
+        "name": "settings",
+        "apiVersion": "browser.ui.dsh/v1alpha1",
+        "kind": "LocalModule",
+        "spec": {
+          "module": "./lib/client.js"
+        }
+      }
+    ]
+  },
+  "license": "MIT",
+  "source": {
+    "repository": "https://github.com/yhPrime/dsh-theme-picker"
+  }
+}
