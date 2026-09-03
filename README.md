@@ -13,37 +13,33 @@ A theme picker plugin for DeepSeek Harness: adds a **Themes** page to the Settin
 
 ## 安装 / Installation
 
-本插件是标准的 dsh bundle 插件（`dsh.bundle` + `dsh.client`）。
+本插件是 **DSH 标准组件**（Community `dsh-plugin.json` v0.15）：由
+[@dsh-std/adapter-dsh](https://github.com/Yan-Zero/dsh-std) 在宿主激活时扫描普通依赖并装载
+`facets.host.entry`，**不是** cordis bundle（无 `dsh.bundle` / `cordis.patch.yml`），
+因此不需要也不会进入 `dsh.profile.bundles`。
 
-### 方式一：本地目录（推荐）
+前置：宿主内核 `@deepseek-ai/dsh-* >= 0.1.2-alpha.2` 且 profile 已安装 `@dsh-std/adapter-dsh`。
 
-```bash
-# 将本仓库放到 profile 目录旁，然后：
-dsh plugin --profile web add file:./dsh-theme-picker
-```
-
-或手动两步：
-
-1. 在 profile 的 `package.json` 里添加依赖与 bundle 条目：
-
-```json
-"dependencies": { "dsh-theme-picker": "file:./dsh-theme-picker" },
-"dsh": { "profile": { "bundles": ["dsh-theme-picker"] } }
-```
-
-2. 在 `node_modules` 中建立链接（junction），或运行 `pnpm install`：
-
-```powershell
-New-Item -ItemType Junction -Path node_modules\dsh-theme-picker -Target ..\dsh-theme-picker
-```
-
-### 方式二：git 依赖
+### 方式一：git 依赖（GitHub 仓库）
 
 ```bash
+# 依赖以普通 dependency 形式加入即可，adapter 扫描激活
 dsh plugin --profile web add git+https://github.com/yhPrime/dsh-theme-picker.git
 ```
 
-安装后重启 DeepSeek Harness，插件随组合自动加载（可在市场「插件」页停用/启用）。
+或手动在 profile `package.json` 的 `dependencies` 加一行后 `pnpm install`：
+
+```json
+"dependencies": { "dsh-theme-picker": "github:yhPrime/dsh-theme-picker" }
+```
+
+### 方式二：本地目录
+
+```bash
+dsh plugin --profile web add file:./dsh-theme-picker
+```
+
+安装后重启 DeepSeek Harness；设置面板出现「主题」页。可在市场「插件」页停用/启用本组件。
 
 ## 依赖 / Requirements
 
@@ -60,10 +56,10 @@ dsh plugin --profile web add git+https://github.com/yhPrime/dsh-theme-picker.git
 
 ```
 dsh-theme-picker/
-├── package.json        # dsh.bundle + dsh.client 声明
-├── cordis.patch.yml    # bundle 层 insert 补丁
+├── package.json        # 普通依赖声明；含 dshStd 自描述可选字段
+├── dsh-plugin.json     # Community v0.15 标准组件清单（adapter 发现依据）
 ├── lib/
-│   ├── index.js        # Host 入口（空实现）
+│   ├── index.js        # Host facet 入口（空激活，职责见上）
 │   └── client.js       # 设置页「主题」分区 UI 与 market API 集成
 └── README.md
 ```

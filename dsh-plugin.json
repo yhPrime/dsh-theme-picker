@@ -1,9 +1,9 @@
 {
-  "$schema": "https://dsh-standard.dev/schemas/dsh-plugin-0.15.schema.json",
+  "$schema": "urn:dsh-std:community-draft:dsh-plugin:0.15",
   "manifestVersion": "0.15",
-  "id": "dsh-theme-picker",
-  "name": "主题选择器",
-  "version": "1.1.0",
+  "id": "io.github.yhprime.dsh-theme-picker",
+  "name": "dsh-theme-picker",
+  "version": "1.1.1",
   "facets": {
     "host": {
       "entry": "./lib/index.js",

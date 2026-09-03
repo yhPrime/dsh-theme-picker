@@ -1,13 +1,14 @@
 {
   "name": "dsh-theme-picker",
   "description": "DSH Standard 标准组件：在设置页提供已安装主题插件的列表与开关（主题选择器）。",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./dsh-plugin.json": "./dsh-plugin.json",
     "./package.json": "./package.json"
   },
   "files": [
