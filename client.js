@@ -33,7 +33,7 @@ window.__ModuleLoader__.load({
     const zh = {
       title: "主题",
       tabDesc: "切换主题、管理已装的主题插件",
-      desc: "同一时间只有一个主题在画面上生效。带独立开关的主题（如昔涟）只关外观、插件保持启用；其它主题切换时停用插件，需刷新页面。",
+      desc: "同一时间只有一个主题在画面上生效。点「显示」切过去，其余自动隐藏。",
       nativeTitle: "内置与原生主题",
       pluginsTitle: "已装主题插件",
       system: "跟随系统",
@@ -68,11 +68,19 @@ window.__ModuleLoader__.load({
       hide: "隐藏",
       softOff: "已隐藏「{name}」，插件保持启用。",
       softFailed: "「{name}」的软开关没有响应。",
+      // 统一语义：每行只有「显示 / 隐藏」两个动作、两个状态词，不暴露底层差异。
+      openState: "使用中",
+      closedState: "未显示",
+      shown: "已显示「{name}」。",
+      hidden: "已隐藏「{name}」。",
+      shownReload: "已显示「{name}」，刷新页面后彻底生效。",
+      hiddenReload: "已隐藏「{name}」，刷新页面后彻底生效。",
+      softHint: "插件保持启用，只关外观",
     };
     const en = {
       title: "Themes",
       tabDesc: "Switch themes and manage installed theme plugins",
-      desc: "Only one theme is visible at a time. Themes with their own switch (e.g. Cyrene) only hide their look and stay enabled; others are disabled and need a page refresh.",
+      desc: "Only one theme is visible at a time. Press Show to switch; the rest hide automatically.",
       nativeTitle: "Built-in and native themes",
       pluginsTitle: "Installed theme plugins",
       system: "Follow system",
@@ -107,6 +115,13 @@ window.__ModuleLoader__.load({
       hide: "Hide",
       softOff: 'Hid "{name}"; the plugin stays enabled.',
       softFailed: '"{name}" did not answer its soft switch.',
+      openState: "In use",
+      closedState: "Hidden",
+      shown: 'Showing "{name}".',
+      hidden: 'Hid "{name}".',
+      shownReload: 'Showing "{name}"; refresh the page to apply it fully.',
+      hiddenReload: 'Hid "{name}"; refresh the page to apply it fully.',
+      softHint: "Plugin stays enabled; only its look is off",
     };
 
     const CSS = `
@@ -448,7 +463,7 @@ window.__ModuleLoader__.load({
     // ── 组件 ─────────────────────────────────────────────────────────────
 
     function Row(props) {
-      const { on, title, subtitle, meta, tag, tagClass, onClick } = props;
+      const { on, title, subtitle, meta, tag, tagClass, tagTitle, onClick } = props;
       return h(
         "div",
         {
@@ -464,7 +479,7 @@ window.__ModuleLoader__.load({
           subtitle ? h("div", { className: "tpk-sub", title: subtitle }, subtitle) : null,
           meta ? h("div", { className: "tpk-sub" }, meta) : null,
         ),
-        tag ? h("span", { className: "tpk-tag " + (tagClass || "") }, tag) : null,
+        tag ? h("span", { className: "tpk-tag " + (tagClass || ""), title: tagTitle || undefined }, tag) : null,
       );
     }
 
@@ -599,11 +614,15 @@ window.__ModuleLoader__.load({
             if (leftovers.length > 0) {
               throw new Error(t("exclusiveFailed", { names: leftovers.join("、") }));
             }
-            setNotice({ text: t("switched", { name }), reload: loaderChanged || othersChanged });
+            const needsReload = loaderChanged || othersChanged;
+            setNotice({
+              text: needsReload ? t("shownReload", { name }) : t("shown", { name }),
+              reload: needsReload,
+            });
           } else {
             const loaderChanged = await dimTheme(item);
             setNotice({
-              text: loaderChanged ? t("disabledOk", { name }) : t("softOff", { name }),
+              text: loaderChanged ? t("hiddenReload", { name }) : t("hidden", { name }),
               reload: loaderChanged,
             });
           }
@@ -767,18 +786,11 @@ window.__ModuleLoader__.load({
           market !== null
             ? market.map((item) => {
                 const isBusy = busy === item.name;
-                const softHidden = item.soft === true && item.live === true && item.softEnabled === false;
-                const tag = item.visual
-                  ? t("active")
-                  : softHidden
-                    ? t("softHidden")
-                    : item.disabled
-                      ? t("disabled")
-                      : item.state === "restart"
-                        ? t("pending")
-                        : t("unknown");
-                const tagClass = item.visual ? "on" : softHidden ? "warn" : item.disabled ? "off" : "warn";
-                const actionLabel = item.visual ? t("hide") : item.soft && item.live === true ? t("show") : t("enable");
+                const restarting = item.visual !== true && item.state === "restart";
+                const tag = item.visual ? t("openState") : restarting ? t("pending") : t("closedState");
+                const tagClass = item.visual ? "on" : restarting ? "warn" : "off";
+                const tagTitle = item.soft === true ? t("softHint") : undefined;
+                const actionLabel = item.visual ? t("hide") : t("show");
                 return h(
                   "div",
                   { key: "market:" + item.name, "data-item": item.name },
@@ -789,6 +801,7 @@ window.__ModuleLoader__.load({
                     meta: item.name,
                     tag,
                     tagClass,
+                    tagTitle,
                     onClick: null,
                   }),
                   h(
