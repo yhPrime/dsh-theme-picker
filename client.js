@@ -138,6 +138,9 @@ window.__ModuleLoader__.load({
 .tpk-row:hover{border-color:var(--dsw-alias-border-l2)}
 .tpk-row.on{border-color:var(--dsw-alias-brand-primary)}
 .tpk-dot{flex:none;width:12px;height:12px;margin-top:2px;border-radius:50%;border:2px solid var(--dsw-alias-border-l2);box-sizing:border-box}
+.tpk-thumb{position:relative;flex:none;display:flex;align-items:center;justify-content:center;width:48px;height:32px;border-radius:6px;overflow:hidden;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);box-sizing:border-box}
+.tpk-thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.tpk-thumb-fallback{font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary)}
 .tpk-row.on .tpk-dot{border-color:var(--dsw-alias-brand-primary);background:radial-gradient(circle,var(--dsw-alias-brand-primary) 0 44%,transparent 56%)}
 .tpk-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
 .tpk-name{font-weight:600;overflow-wrap:anywhere}
@@ -300,6 +303,73 @@ window.__ModuleLoader__.load({
 
     let classifyPromise = null;
 
+    // ── 显示名与缩略图 ───────────────────────────────────────────────────
+    // 注册表条目里没有独立的「中文标题」字段（只有 name 与 description.{zh,en}），
+    // 所以顺序是：本地官方中文名表 → 结构化翻译包名 → 去前缀原样。
+    const OFFICIAL_ZH = {
+      "dsh-cyrene-theme": "昔涟主题",
+      "dsh-deep-whale#maid-atelier": "深海鲸娘 · 女仆工坊",
+      "@smalltailqwq/dsh-client-ui-skin-maid-atelier": "深海鲸娘 · 女仆工坊",
+    };
+
+    const NAME_TOKENS = {
+      dsh: "", theme: "主题", skin: "皮肤", ui: "", client: "", plugin: "", bundle: "",
+      deep: "深海", whale: "鲸", maid: "女仆", atelier: "工坊", glass: "玻璃",
+      liquid: "液态", frosted: "磨砂", transparent: "透明", neon: "霓虹", cyber: "赛博",
+      cyberpunk: "赛博朋克", pixel: "像素", retro: "复古", dark: "暗夜", light: "白昼",
+      night: "夜", ocean: "海洋", sea: "海", sky: "天空", star: "星辰", moon: "月",
+      sun: "日", sakura: "樱花", cat: "猫", girl: "少女", pink: "粉", blue: "蓝",
+      green: "绿", purple: "紫", gold: "金", snow: "雪", firefly: "流萤",
+      classic: "经典", minimal: "极简", soft: "柔光", warm: "暖色", cool: "冷色",
+      wallpaper: "壁纸", background: "背景", appearance: "外观", style: "风格",
+      studio: "工坊", dream: "梦", lotus: "莲", ink: "水墨", paper: "纸",
+    };
+
+    /** 把包名 / 注册表名结构化翻成中文；一个词都没命中就返回 ""。 */
+    function translateName(raw) {
+      if (typeof raw !== "string" || raw === "") return "";
+      const base = raw.toLowerCase().replace(/^@[^/]+\//, "");
+      const hash = base.indexOf("#");
+      const parts = hash === -1 ? [base] : [base.slice(0, hash), base.slice(hash + 1)];
+      const out = [];
+      let matched = 0;
+      for (const part of parts) {
+        const pieces = [];
+        for (const word of part.split(/[-_.\s/]+/)) {
+          if (word === "") continue;
+          const hit = NAME_TOKENS[word];
+          if (hit === undefined) {
+            pieces.push(word);
+          } else {
+            matched += 1;
+            if (hit !== "") pieces.push(hit);
+          }
+        }
+        const text = pieces.join("");
+        if (text !== "") out.push(text);
+      }
+      if (matched === 0) return "";
+      return out.join(" · ");
+    }
+
+    /** 显示名：官方中文名优先，其次翻译，最后去掉前缀原样。 */
+    function displayNameOf(packageName, meta) {
+      for (const key of [packageName, meta && meta.name]) {
+        if (typeof key === "string" && OFFICIAL_ZH[key] !== undefined) return OFFICIAL_ZH[key];
+      }
+      const translated = translateName(meta && meta.name ? meta.name : packageName);
+      if (translated !== "") return translated;
+      const bare = String(packageName).replace(/^@[^/]+\//, "").replace(/^dsh-/, "").replace(/#/g, " · ");
+      return bare === "" ? String(packageName) : bare;
+    }
+
+    /** 缩略图：注册表截图第一张；没有就空串（界面退回首字方块）。 */
+    function thumbnailOf(meta) {
+      if (meta === undefined || meta === null || !Array.isArray(meta.screenshots)) return "";
+      const first = meta.screenshots[0];
+      return typeof first === "string" ? first : "";
+    }
+
     /** 从 market 注册表里算出「哪些名字 / 仓库属于主题」。失败也缓存，避免每分钟打一次。 */
     function classifyThemes() {
       if (classifyPromise !== null) return classifyPromise;
@@ -322,7 +392,15 @@ window.__ModuleLoader__.load({
               description.zh = plugin.description;
               description.en = plugin.description;
             }
-            const meta = { name: typeof plugin.name === "string" ? plugin.name : "", description };
+            const meta = {
+              name: typeof plugin.name === "string" ? plugin.name : "",
+              description,
+              // 缩略图：注册表里的截图列表（raw.githubusercontent 直链，<img> 不受跨域限制）。
+              screenshots: Array.isArray(plugin.screenshots)
+                ? plugin.screenshots.filter((url) => typeof url === "string" && url !== "")
+                : [],
+              page: typeof plugin.page === "string" ? plugin.page : "",
+            };
             if (typeof plugin.name === "string" && plugin.name !== "") {
               names.add(plugin.name);
               if (!byName.has(plugin.name)) byName.set(plugin.name, meta);
@@ -393,23 +471,12 @@ window.__ModuleLoader__.load({
           const repo = repoFromSpec(installed[name]);
           if (repo !== null) meta = classify.byRepo.get(repo);
         }
-        let displayName = "";
-        let description = null;
-        if (meta !== undefined) {
-          displayName = String(meta.name).split("#")[0];
-          const hasZh = typeof meta.description.zh === "string";
-          const hasEn = typeof meta.description.en === "string";
-          if (hasZh || hasEn) {
-            description = { zh: hasZh ? meta.description.zh : null, en: hasEn ? meta.description.en : null };
-          }
-        }
-        if (displayName === "") {
-          displayName = name.indexOf("@") === 0 && name.indexOf("/") !== -1 ? name.slice(name.indexOf("/") + 1) : name;
-        }
+        const displayName = displayNameOf(name, meta);
+        const thumb = thumbnailOf(meta);
         themes.push({
           name,
           displayName,
-          description,
+          thumb,
           disabled: isDisabled,
           live,
           state: act && typeof act.state === "string" ? act.state : "unknown",
@@ -462,8 +529,14 @@ window.__ModuleLoader__.load({
 
     // ── 组件 ─────────────────────────────────────────────────────────────
 
+    /**
+     * 一行：缩略图 + 名字（原生主题用圆点）。简介不再展开，需要时看 tooltip。
+     * `thumb` 为空时退回首字方块；图片加载失败（比如 raw.githubusercontent 被墙）
+     * 由 onError 把自己藏掉，底下的首字方块露出来。
+     */
     function Row(props) {
-      const { on, title, subtitle, meta, tag, tagClass, tagTitle, onClick } = props;
+      const { on, name, tip, thumb, dot, tag, tagClass, tagTitle, onClick } = props;
+      const initial = typeof name === "string" && name !== "" ? name.slice(0, 1) : "·";
       return h(
         "div",
         {
@@ -471,14 +544,15 @@ window.__ModuleLoader__.load({
           onClick: typeof onClick === "function" ? onClick : undefined,
           style: typeof onClick === "function" ? null : { cursor: "default" },
         },
-        h("span", { className: "tpk-dot" }),
-        h(
-          "div",
-          { className: "tpk-main" },
-          h("div", { className: "tpk-name" }, title),
-          subtitle ? h("div", { className: "tpk-sub", title: subtitle }, subtitle) : null,
-          meta ? h("div", { className: "tpk-sub" }, meta) : null,
-        ),
+        dot
+          ? h("span", { className: "tpk-dot" })
+          : h(
+              "span",
+              { className: "tpk-thumb" },
+              h("span", { className: "tpk-thumb-fallback" }, initial),
+              thumb ? h("img", { src: thumb, alt: "", loading: "lazy", onError: (event) => { event.currentTarget.style.display = "none"; } }) : null,
+            ),
+        h("div", { className: "tpk-main" }, h("div", { className: "tpk-name", title: tip || undefined }, name)),
         tag ? h("span", { className: "tpk-tag " + (tagClass || ""), title: tagTitle || undefined }, tag) : null,
       );
     }
@@ -701,18 +775,6 @@ window.__ModuleLoader__.load({
         { id: "dark", label: t("dark") },
       ].concat(extraThemes.map((definition) => ({ id: definition.id, label: definition.id })));
 
-      const localeZh =
-        typeof window !== "undefined" &&
-        window.localStorage !== undefined &&
-        window.localStorage !== null &&
-        window.localStorage.getItem("dsh.locale") === "zh";
-      const describe = (item) => {
-        if (item.description === null || item.description === undefined) return null;
-        return localeZh
-          ? item.description.zh || item.description.en || null
-          : item.description.en || item.description.zh || null;
-      };
-
       // 同一时间只应有一个主题插件在画面上生效；多于一个就是需要收敛的状态。
       const liveList = market === null ? [] : market.filter((item) => item.visual === true);
       const keeper = liveList.length > 1 ? liveList[0] : null;
@@ -770,7 +832,8 @@ window.__ModuleLoader__.load({
                 h(Row, {
                   key: "native:" + row.id,
                   on: preference === row.id,
-                  title: row.label,
+                  dot: true,
+                  name: row.label,
                   tag: preference === row.id ? (skinLive ? t("basePalette") : t("active")) : null,
                   tagClass: skinLive ? "off" : "on",
                   onClick: () => pickNative(row.id),
@@ -796,9 +859,9 @@ window.__ModuleLoader__.load({
                   { key: "market:" + item.name, "data-item": item.name },
                   h(Row, {
                     on: item.visual,
-                    title: item.displayName || item.name,
-                    subtitle: describe(item),
-                    meta: item.name,
+                    name: item.displayName || item.name,
+                    tip: item.name,
+                    thumb: item.thumb,
                     tag,
                     tagClass,
                     tagTitle,
