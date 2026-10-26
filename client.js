@@ -33,7 +33,7 @@ window.__ModuleLoader__.load({
     const zh = {
       title: "主题",
       tabDesc: "切换主题、管理已装的主题插件",
-      desc: "同一时间只有一个主题生效：原生主题点击即切换；主题插件切换后刷新页面生效。",
+      desc: "同一时间只有一个主题在画面上生效。带独立开关的主题（如昔涟）只关外观、插件保持启用；其它主题切换时停用插件，需刷新页面。",
       nativeTitle: "内置与原生主题",
       pluginsTitle: "已装主题插件",
       system: "跟随系统",
@@ -63,11 +63,16 @@ window.__ModuleLoader__.load({
       exclusiveFailed: "仍有其他主题在生效：{names}。请刷新页面或重启 DSH 后再试。",
       basePalette: "底层配色",
       skinOverrides: "有主题插件正在生效，它覆盖这里的配色。",
+      softHidden: "已启用·不外显",
+      show: "显示",
+      hide: "隐藏",
+      softOff: "已隐藏「{name}」，插件保持启用。",
+      softFailed: "「{name}」的软开关没有响应。",
     };
     const en = {
       title: "Themes",
       tabDesc: "Switch themes and manage installed theme plugins",
-      desc: "Only one theme is active at a time: native themes switch instantly; a theme plugin needs a page refresh.",
+      desc: "Only one theme is visible at a time. Themes with their own switch (e.g. Cyrene) only hide their look and stay enabled; others are disabled and need a page refresh.",
       nativeTitle: "Built-in and native themes",
       pluginsTitle: "Installed theme plugins",
       system: "Follow system",
@@ -97,6 +102,11 @@ window.__ModuleLoader__.load({
       exclusiveFailed: "Other themes are still active: {names}. Refresh the page or restart DSH, then retry.",
       basePalette: "Base palette",
       skinOverrides: "A theme plugin is active and overrides the palette below.",
+      softHidden: "Enabled, hidden",
+      show: "Show",
+      hide: "Hide",
+      softOff: 'Hid "{name}"; the plugin stays enabled.',
+      softFailed: '"{name}" did not answer its soft switch.',
     };
 
     const CSS = `
@@ -199,6 +209,63 @@ window.__ModuleLoader__.load({
         throw new Error(detail);
       }
       return data;
+    }
+
+    // ── 「软关闭」适配器 ─────────────────────────────────────────────────
+    //
+    // 皮肤的外显来自它自己的客户端半：注入样式 + 给 body 挂开关属性。
+    // 停用插件 = 销毁 fiber，这正是昔涟主题崩溃竞态的触发点，而且重挂要整页刷新。
+    // 有些皮肤自己带「关掉外观但保持启用」的开关，就优先走它：
+    //   dsh-cyrene-theme：GET/POST /cyrene/state（带 rev 乐观锁），字段 theme，
+    //   DOM 开关 body[data-cyrene-skin="on"|"off"]，它所有 CSS 都挂在这个属性下。
+    // 没有适配器的皮肤只能退回 loader 开关（那是唯一通用的档位）。
+    const SOFT_ADAPTERS = {
+      "dsh-cyrene-theme": { route: "/cyrene/state", field: "theme", attr: "data-cyrene-skin" },
+    };
+
+    /** 读一份软开关状态；不可用返回 null（不猜）。 */
+    async function readSoftState(adapter) {
+      try {
+        const res = await fetch(adapter.route, { headers: { accept: "application/json" }, cache: "no-store" });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data === null || typeof data !== "object" || data.ok !== true) return null;
+        if (typeof data.value !== "object" || data.value === null) return null;
+        return data.value;
+      } catch (error_) {
+        return null;
+      }
+    }
+
+    /** 设置软开关：先读 rev，再带 rev 写；成功后就地切 body 属性，避免等它下次 resync。 */
+    async function setSoftState(adapter, on) {
+      const value = await readSoftState(adapter);
+      if (value === null || !Number.isInteger(value.rev)) return false;
+      try {
+        const res = await fetch(adapter.route, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ rev: value.rev, [adapter.field]: on }),
+        });
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (error_) {
+          data = null;
+        }
+        // 409 = 别处刚改过（rev 变了），交给下一轮轮询自愈，这里不重试。
+        if (!res.ok || data === null || typeof data !== "object" || data.ok !== true) return false;
+      } catch (error_) {
+        return false;
+      }
+      try {
+        if (typeof document !== "undefined" && document.body) {
+          document.body.setAttribute(adapter.attr, on ? "on" : "off");
+        }
+      } catch (error_) {
+        /* 只落到持久化，下次 resync 生效 */
+      }
+      return true;
     }
 
     function repoOf(url) {
@@ -334,6 +401,20 @@ window.__ModuleLoader__.load({
         });
       }
       themes.sort((a, b) => (b.live ? 1 : 0) - (a.live ? 1 : 0));
+      // 软开关：只有「已启用 + 有适配器」的主题才值得问一次；读不到就当作未知（按外显处理）。
+      for (const item of themes) {
+        const adapter = SOFT_ADAPTERS[item.name];
+        item.soft = adapter !== undefined;
+        item.softEnabled = null;
+        if (adapter === undefined || item.live !== true) continue;
+        const value = await readSoftState(adapter);
+        if (value !== null && typeof value[adapter.field] === "boolean") item.softEnabled = value[adapter.field];
+        // visual＝真的在画面上生效。软关闭的主题插件没在画面上，不参与「多主题」判定。
+        item.visual = item.live && item.softEnabled !== false;
+      }
+      for (const item of themes) {
+        if (item.visual === undefined) item.visual = item.live;
+      }
       return { themes, errors, market: true };
     }
 
@@ -453,46 +534,79 @@ window.__ModuleLoader__.load({
       };
 
       /**
-       * 单主题独享的兜底：关掉除 keep 之外所有正在生效的主题插件。
+       * 把除 keep 之外「正在画面上生效」的主题全部收掉。
        *
-       * 为什么不只靠 market 的 /toggle：market 只在 `installedThemeNames()`
-       * 认识这个包时才做排他；那份名单来自注册表分类（外加包根 skin.json），
-       * 本地目录装的、私有仓库装的、注册表里没收录的皮肤都不在里面，
-       * 走的是 setPluginEnabled —— 不排他，于是两个皮肤可以同时活着。
-       * 这里按本地自己的分类再过一遍，谁都别想留两个。
+       * 两种收法：
+       *  - 有软开关适配器（如昔涟）：只关外观，插件保持启用 → 不动 fiber，
+       *    不触发重挂，也不需要整页刷新；
+       *  - 没有适配器：退回 market 的 loader 开关（唯一通用档位）。
+       * 另外 market 只对注册表分类内的主题做排他，名单外的皮肤必须本地补刀。
        */
-      const disableOtherThemes = async (keepName) => {
+      const hideOtherThemes = async (keepName) => {
         const listed = await listThemePlugins();
-        const others = listed.themes.filter((item) => item.live === true && item.name !== keepName);
+        const others = listed.themes.filter((item) => item.visual === true && item.name !== keepName);
         const stuck = [];
+        let loaderChanged = false;
         for (const other of others) {
+          const adapter = SOFT_ADAPTERS[other.name];
+          if (adapter !== undefined && (await setSoftState(adapter, false))) continue;
           try {
             await marketPost("/dsh-market/toggle", { name: other.name, enabled: false });
+            loaderChanged = true;
           } catch (error_) {
             stuck.push(other.displayName || other.name);
           }
         }
-        return stuck;
+        return { stuck, loaderChanged };
       };
 
-      const togglePlugin = async (name, enabled) => {
+      /** 点亮一个主题：已启用的软主题只开外观，其余走 loader 开关。 */
+      const lightUpTheme = async (item) => {
+        const adapter = SOFT_ADAPTERS[item.name];
+        if (item.live === true && adapter !== undefined) {
+          if (!(await setSoftState(adapter, true))) throw new Error(t("softFailed", { name: item.displayName || item.name }));
+          return false; // 没动 loader，不需要刷新
+        }
+        await marketPost("/dsh-market/toggle", { name: item.name, enabled: true });
+        if (adapter !== undefined) await setSoftState(adapter, true);
+        return true;
+      };
+
+      /** 收掉一个主题：软主题只关外观，其余停用插件。 */
+      const dimTheme = async (item) => {
+        const adapter = SOFT_ADAPTERS[item.name];
+        if (adapter !== undefined && item.live === true) {
+          if (!(await setSoftState(adapter, false))) throw new Error(t("softFailed", { name: item.displayName || item.name }));
+          return false;
+        }
+        await marketPost("/dsh-market/toggle", { name: item.name, enabled: false });
+        return true;
+      };
+
+      const applyTheme = async (item, on) => {
+        const name = item.name;
         setBusy(name);
         setNotice(null);
         setMarketError(null);
         setError(null);
         try {
-          await marketPost("/dsh-market/toggle", { name, enabled });
-          if (enabled) {
-            // 启用后立刻收敛：这一次之后，只剩它一个。
-            const stuck = await disableOtherThemes(name);
+          if (on) {
+            const loaderChanged = await lightUpTheme(item);
+            const { stuck, loaderChanged: othersChanged } = await hideOtherThemes(name);
             const after = await listThemePlugins();
-            const stillLive = after.themes.filter((item) => item.live === true && item.name !== name);
-            const leftovers = stuck.concat(stillLive.map((item) => item.displayName || item.name));
+            const stillOn = after.themes.filter((entry) => entry.visual === true && entry.name !== name);
+            const leftovers = stuck.concat(stillOn.map((entry) => entry.displayName || entry.name));
             if (leftovers.length > 0) {
               throw new Error(t("exclusiveFailed", { names: leftovers.join("、") }));
             }
+            setNotice({ text: t("switched", { name }), reload: loaderChanged || othersChanged });
+          } else {
+            const loaderChanged = await dimTheme(item);
+            setNotice({
+              text: loaderChanged ? t("disabledOk", { name }) : t("softOff", { name }),
+              reload: loaderChanged,
+            });
           }
-          setNotice({ text: enabled ? t("switched", { name }) : t("disabledOk", { name }), reload: true });
         } catch (error_) {
           setMarketError(t("marketError") + messageOf(error_));
         } finally {
@@ -502,20 +616,23 @@ window.__ModuleLoader__.load({
       };
 
       /** 发现多个主题同时生效时，一键收敛到其中一个。 */
-      const convergeToOne = async (keepName) => {
+      const convergeToOne = async (keepName, keepItem) => {
         setBusy(keepName);
         setNotice(null);
         setMarketError(null);
         setError(null);
         try {
-          const stuck = await disableOtherThemes(keepName);
+          if (keepItem !== undefined && keepItem.live === true && SOFT_ADAPTERS[keepName] !== undefined) {
+            await setSoftState(SOFT_ADAPTERS[keepName], true);
+          }
+          const { stuck, loaderChanged } = await hideOtherThemes(keepName);
           const after = await listThemePlugins();
-          const stillLive = after.themes.filter((item) => item.live === true && item.name !== keepName);
-          const leftovers = stuck.concat(stillLive.map((item) => item.displayName || item.name));
+          const stillOn = after.themes.filter((entry) => entry.visual === true && entry.name !== keepName);
+          const leftovers = stuck.concat(stillOn.map((entry) => entry.displayName || entry.name));
           if (leftovers.length > 0) {
             throw new Error(t("exclusiveFailed", { names: leftovers.join("、") }));
           }
-          setNotice({ text: t("keepOnly", { name: keepName }), reload: true });
+          setNotice({ text: t("keepOnly", { name: keepName }), reload: loaderChanged });
         } catch (error_) {
           setMarketError(t("marketError") + messageOf(error_));
         } finally {
@@ -577,8 +694,8 @@ window.__ModuleLoader__.load({
           : item.description.en || item.description.zh || null;
       };
 
-      // 同一时间只应有一个主题插件生效；多于一个就是需要收敛的状态。
-      const liveList = market === null ? [] : market.filter((item) => item.live === true);
+      // 同一时间只应有一个主题插件在画面上生效；多于一个就是需要收敛的状态。
+      const liveList = market === null ? [] : market.filter((item) => item.visual === true);
       const keeper = liveList.length > 1 ? liveList[0] : null;
       const skinLive = liveList.length > 0;
       const displayOf = (item) => item.displayName || item.name;
@@ -617,7 +734,7 @@ window.__ModuleLoader__.load({
                   type: "button",
                   className: "tpk-btn",
                   disabled: busy === keeper.name,
-                  onClick: () => convergeToOne(keeper.name),
+                  onClick: () => convergeToOne(keeper.name, keeper),
                 },
                 t("keepOnly", { name: displayOf(keeper) }),
               ),
@@ -650,19 +767,23 @@ window.__ModuleLoader__.load({
           market !== null
             ? market.map((item) => {
                 const isBusy = busy === item.name;
-                const tag = item.live
+                const softHidden = item.soft === true && item.live === true && item.softEnabled === false;
+                const tag = item.visual
                   ? t("active")
-                  : item.disabled
-                    ? t("disabled")
-                    : item.state === "restart"
-                      ? t("pending")
-                      : t("unknown");
-                const tagClass = item.live ? "on" : item.disabled ? "off" : "warn";
+                  : softHidden
+                    ? t("softHidden")
+                    : item.disabled
+                      ? t("disabled")
+                      : item.state === "restart"
+                        ? t("pending")
+                        : t("unknown");
+                const tagClass = item.visual ? "on" : softHidden ? "warn" : item.disabled ? "off" : "warn";
+                const actionLabel = item.visual ? t("hide") : item.soft && item.live === true ? t("show") : t("enable");
                 return h(
                   "div",
                   { key: "market:" + item.name, "data-item": item.name },
                   h(Row, {
-                    on: item.live,
+                    on: item.visual,
                     title: item.displayName || item.name,
                     subtitle: describe(item),
                     meta: item.name,
@@ -678,11 +799,11 @@ window.__ModuleLoader__.load({
                       {
                         type: "button",
                         className: "tpk-btn",
-                        title: (item.live ? t("disable") : t("enable")) + " · " + item.name,
+                        title: actionLabel + " · " + item.name,
                         disabled: isBusy,
-                        onClick: () => togglePlugin(item.name, item.live !== true),
+                        onClick: () => applyTheme(item, item.visual !== true),
                       },
-                      isBusy ? t("switching") : item.live ? t("disable") : t("enable"),
+                      isBusy ? t("switching") : actionLabel,
                     ),
                     h(
                       "button",
