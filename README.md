@@ -1,68 +1,49 @@
 # dsh-theme-picker
 
-DeepSeek Harness 主题选择插件 —— 在设置面板中添加「主题」页面：统一管理应用主题与已安装的主题插件，同一时间仅一个主题生效，其余自动禁用。
+DeepSeek Harness 的**主题管理器**：一个右侧栏页签 + 一个设置页，用同一块面板管理「原生主题」和「已装的主题插件」，同一时间只有一个主题生效。
 
-A theme picker plugin for DeepSeek Harness: adds a **Themes** page to the Settings panel. It manages both app themes and installed theme plugins — only one theme stays active at a time, the others are disabled automatically.
+A **theme manager** for DeepSeek Harness: one panel in the right sidebar plus a Settings page. It manages native themes and installed theme plugins, with only one theme active at a time.
 
 ## 功能 / Features
 
-- **应用主题（App themes）**：列出 跟随系统 / 浅色 / 深色 以及皮肤插件注册的主题，点击即切换，同一时间仅一个生效。
-- **已安装的主题插件（Installed theme plugins）**：通过 dsh-market API 列出所有已安装的主题插件（含被禁用的），显示注册表友好名（如 `dsh-maid-whale-webUI`）与随界面语言切换的中英文描述。
-- **一键启用、单主题独享**：启用某个主题插件时自动禁用其他所有主题插件（先走 market 的 `use-skin`，市场分类器不识别时降级为 `/toggle` 手动独享），选择持久化到 market 的 `state.json`，重启后保持。
-- **实时同步**：列表每 6 秒刷新，与 dsh-market 页面状态互通；切换成功后提示刷新页面应用新皮肤。
+- **右侧栏入口**：在 DSH 右侧栏页签列表里注册「主题」页签（经 `dsh-better-sidebar` 的公开服务 `ctx.betterSidebar.registerTab`）。没装该插件时自动跳过，退到设置页。
+- **原生主题**：读取客户端 `theme` 服务的快照，列出跟随系统 / 浅色 / 深色 / 其它已注册主题（`ctx.theme.register` 注册的一等主题），点击即时切换、即时生效。
+- **已装主题插件**：通过 dsh-market 同源路由 `GET /dsh-market/installed`、`GET /dsh-market/registry` 列出所有已装主题插件（含被禁用的），显示注册表友好名与双语描述。
+- **单主题独享**：启用走 `POST /dsh-market/toggle`（market 自身负责主题排他），禁用与卸载也走 market 路由；状态写入 market 的 `state.json`，重启后保持。
+- **可见时才轮询**：页签不在前台时停止 8s 轮询；`theme/change` 事件驱动原生主题区实时刷新。
 
 ## 安装 / Installation
 
-本插件是 **DSH 标准组件**（Community `dsh-plugin.json` v0.15）：由
-[@dsh-std/adapter-dsh](https://github.com/Yan-Zero/dsh-std) 在宿主激活时扫描普通依赖并装载
-`facets.host.entry`，**不是** cordis bundle（无 `dsh.bundle` / `cordis.patch.yml`），
-因此不需要也不会进入 `dsh.profile.bundles`。
-
-前置：宿主内核 `@deepseek-ai/dsh-* >= 0.1.2-alpha.2` 且 profile 已安装 `@dsh-std/adapter-dsh`。
-
-### 方式一：git 依赖（GitHub 仓库）
+这是一个**官方形态的 cordis bundle**：`package.json` 声明 `dsh.bundle.patch` 与 `dsh.client`，`cordis.patch.yml` 插入一行 loader 入口。
 
 ```bash
-# 依赖以普通 dependency 形式加入即可，adapter 扫描激活
-dsh plugin --profile web add git+https://github.com/yhPrime/dsh-theme-picker.git
+dsh plugin --profile <desktop|web> add <本目录绝对路径>
+# 或 git 依赖
+dsh plugin --profile <desktop|web> add git+https://github.com/yhPrime/dsh-theme-picker.git
 ```
 
-或手动在 profile `package.json` 的 `dependencies` 加一行后 `pnpm install`：
+装完**硬刷新浏览器**（Ctrl+Shift+R）。要求宿主 DSH **0.2.1-rc.1+**。
 
-```json
-"dependencies": { "dsh-theme-picker": "github:yhPrime/dsh-theme-picker" }
-```
+## 可选依赖 / Optional
 
-### 方式二：本地目录
-
-```bash
-dsh plugin --profile web add file:./dsh-theme-picker
-```
-
-安装后重启 DeepSeek Harness；设置面板出现「主题」页。可在市场「插件」页停用/启用本组件。
-
-## 依赖 / Requirements
-
-- DeepSeek Harness（Web profile）
-- [dshmarket](https://github.com/anywhere-labs/dshmarket)（主题插件清单、启用/禁用与持久化均通过其 HTTP API 完成）
-
-## 原理 / How it works
-
-- 「应用主题」直接使用客户端 `theme` 服务（`getTheme` / `setTheme`）。
-- 「已安装的主题插件」调用 dsh-market 同源路由：`GET /dsh-market/installed`、`GET /dsh-market/registry`（主题分类与双语描述）、`POST /dsh-market/use-skin`、`POST /dsh-market/toggle`。
-- 市场分类器只按注册名或 `github:` 规格识别主题；对以 `git+https://github.com/...` 安装的皮肤插件（如 `@dsh-external/*-skin-*`），本插件按仓库地址补充分类，并在 `use-skin` 拒绝时降级为手动独享切换，保持与市场状态一致。
+- [dshmarket](https://github.com/anywhere-labs/dshmarket)（1.70+）：没有它时面板只显示原生主题，插件区提示「未检测到 dsh-market」。
+- [dsh-better-sidebar](https://github.com/omdsh-dev/DSH-better-sidebar)（0.28+）：没有它时不出右侧栏页签，只在设置页出现「主题」。
 
 ## 目录 / Layout
 
 ```
 dsh-theme-picker/
-├── package.json        # 普通依赖声明；含 dshStd 自描述可选字段
-├── dsh-plugin.json     # Community v0.15 标准组件清单（adapter 发现依据）
-├── lib/
-│   ├── index.js        # Host facet 入口（空激活，职责见上）
-│   └── client.js       # 设置页「主题」分区 UI 与 market API 集成
-└── README.md
+├── package.json        # bundle 声明（dsh.bundle / dsh.client / exports / files）
+├── cordis.patch.yml    # 插入 loader 行 id: theme-picker
+├── index.js            # 宿主半：空 apply（主题逻辑全在浏览器侧）
+├── client.js           # 客户端半：模块加载器工厂 + 右侧栏页签 + 设置页
+├── locale/{zh,en}.json # 插件管理器与设置页读的 meta.title / meta.description
+└── icon.svg            # 插件图标（原始绘制）
 ```
+
+## 从 1.x 升级 / Upgrading from 1.x
+
+1.x 是 `@dsh-std` 的「标准组件」（`dsh-plugin.json` + `facets.host` + `context.protocols` 协议层），依赖 `@dsh-std/adapter-dsh`，而该适配包的 peer 范围止于 DSH `<0.2.1`，在 0.2.1 线上不成立。2.0 起改回 DSH 官方 bundle 形态，`dsh-plugin.json` 与 `lib/` 已删除。
 
 ## License
 

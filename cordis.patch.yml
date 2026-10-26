@@ -1,0 +1,5 @@
+# dsh-theme-picker bundle patch：把本包插入 profile 的插件树。
+# 安装：dsh plugin --profile <name> add <本目录绝对路径>
+- insert:
+    - id: theme-picker
+      name: dsh-theme-picker
