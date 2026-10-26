@@ -1,6 +1,6 @@
 {
   "name": "dsh-theme-picker",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "description": "DSH 主题管理器：右侧栏页签 + 设置页，统一管理原生主题与已装主题插件（单主题独享）。",
   "type": "module",

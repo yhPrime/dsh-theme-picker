@@ -58,6 +58,11 @@ window.__ModuleLoader__.load({
       nativeError: "切换主题失败：",
       reload: "立即刷新",
       noMarket: "未检测到 dsh-market，插件清单不可用。",
+      multiActive: "{count} 个主题插件同时在生效：{names}",
+      keepOnly: "只保留「{name}」",
+      exclusiveFailed: "仍有其他主题在生效：{names}。请刷新页面或重启 DSH 后再试。",
+      basePalette: "底层配色",
+      skinOverrides: "有主题插件正在生效，它覆盖这里的配色。",
     };
     const en = {
       title: "Themes",
@@ -87,6 +92,11 @@ window.__ModuleLoader__.load({
       nativeError: "Could not switch theme: ",
       reload: "Reload now",
       noMarket: "dsh-market is not installed; the plugin list is unavailable.",
+      multiActive: "{count} theme plugins are active at once: {names}",
+      keepOnly: 'Keep only "{name}"',
+      exclusiveFailed: "Other themes are still active: {names}. Refresh the page or restart DSH, then retry.",
+      basePalette: "Base palette",
+      skinOverrides: "A theme plugin is active and overrides the palette below.",
     };
 
     const CSS = `
@@ -114,6 +124,8 @@ window.__ModuleLoader__.load({
 .tpk-acts{display:flex;gap:6px;margin-top:6px}
 .tpk-note{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-state-success-primary);border-radius:9px;background:var(--dsw-alias-bg-layer-1)}
 .tpk-note span{flex:1 1 auto;min-width:0}
+.tpk-alert{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--dsw-alias-state-warn-primary);border-radius:9px;background:var(--dsw-alias-bg-layer-1)}
+.tpk-alert span{flex:1 1 auto;min-width:0;line-height:1.45}
 .tpk-err{font-size:11.5px;line-height:1.45;color:var(--dsw-alias-state-error-primary)}
 .tpk-muted{font-size:11.5px;line-height:1.45;color:var(--dsw-alias-label-secondary)}
 .tpk-empty{padding:2px 0;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
@@ -178,9 +190,13 @@ window.__ModuleLoader__.load({
         data = null;
       }
       if (!res.ok || data === null || typeof data !== "object" || data.ok !== true) {
-        throw new Error(
-          data && typeof data.error === "string" ? data.error : "market POST " + path + " -> " + res.status,
-        );
+        const detail =
+          data && typeof data.error === "string"
+            ? data.error
+            : data && typeof data.reason === "string"
+              ? data.reason
+              : "market POST " + path + " -> " + res.status;
+        throw new Error(detail);
       }
       return data;
     }
@@ -436,15 +452,70 @@ window.__ModuleLoader__.load({
         }
       };
 
+      /**
+       * 单主题独享的兜底：关掉除 keep 之外所有正在生效的主题插件。
+       *
+       * 为什么不只靠 market 的 /toggle：market 只在 `installedThemeNames()`
+       * 认识这个包时才做排他；那份名单来自注册表分类（外加包根 skin.json），
+       * 本地目录装的、私有仓库装的、注册表里没收录的皮肤都不在里面，
+       * 走的是 setPluginEnabled —— 不排他，于是两个皮肤可以同时活着。
+       * 这里按本地自己的分类再过一遍，谁都别想留两个。
+       */
+      const disableOtherThemes = async (keepName) => {
+        const listed = await listThemePlugins();
+        const others = listed.themes.filter((item) => item.live === true && item.name !== keepName);
+        const stuck = [];
+        for (const other of others) {
+          try {
+            await marketPost("/dsh-market/toggle", { name: other.name, enabled: false });
+          } catch (error_) {
+            stuck.push(other.displayName || other.name);
+          }
+        }
+        return stuck;
+      };
+
       const togglePlugin = async (name, enabled) => {
         setBusy(name);
         setNotice(null);
         setMarketError(null);
+        setError(null);
         try {
-          // 主题排他已由 market 的 /toggle 负责（启用主题会停用其他主题）。
           await marketPost("/dsh-market/toggle", { name, enabled });
-          const message = enabled ? t("switched", { name }) : t("disabledOk", { name });
-          setNotice({ text: message, reload: true });
+          if (enabled) {
+            // 启用后立刻收敛：这一次之后，只剩它一个。
+            const stuck = await disableOtherThemes(name);
+            const after = await listThemePlugins();
+            const stillLive = after.themes.filter((item) => item.live === true && item.name !== name);
+            const leftovers = stuck.concat(stillLive.map((item) => item.displayName || item.name));
+            if (leftovers.length > 0) {
+              throw new Error(t("exclusiveFailed", { names: leftovers.join("、") }));
+            }
+          }
+          setNotice({ text: enabled ? t("switched", { name }) : t("disabledOk", { name }), reload: true });
+        } catch (error_) {
+          setMarketError(t("marketError") + messageOf(error_));
+        } finally {
+          setBusy(null);
+          refresh();
+        }
+      };
+
+      /** 发现多个主题同时生效时，一键收敛到其中一个。 */
+      const convergeToOne = async (keepName) => {
+        setBusy(keepName);
+        setNotice(null);
+        setMarketError(null);
+        setError(null);
+        try {
+          const stuck = await disableOtherThemes(keepName);
+          const after = await listThemePlugins();
+          const stillLive = after.themes.filter((item) => item.live === true && item.name !== keepName);
+          const leftovers = stuck.concat(stillLive.map((item) => item.displayName || item.name));
+          if (leftovers.length > 0) {
+            throw new Error(t("exclusiveFailed", { names: leftovers.join("、") }));
+          }
+          setNotice({ text: t("keepOnly", { name: keepName }), reload: true });
         } catch (error_) {
           setMarketError(t("marketError") + messageOf(error_));
         } finally {
@@ -506,6 +577,13 @@ window.__ModuleLoader__.load({
           : item.description.en || item.description.zh || null;
       };
 
+      // 同一时间只应有一个主题插件生效；多于一个就是需要收敛的状态。
+      const liveList = market === null ? [] : market.filter((item) => item.live === true);
+      const keeper = liveList.length > 1 ? liveList[0] : null;
+      const skinLive = liveList.length > 0;
+      const displayOf = (item) => item.displayName || item.name;
+      const namesOf = (items) => items.map(displayOf).join("、");
+
       return h(
         "div",
         { className: "tpk" },
@@ -528,10 +606,28 @@ window.__ModuleLoader__.load({
               notice.reload ? h("button", { type: "button", className: "tpk-btn", onClick: reloadPage }, t("reload")) : null,
             )
           : null,
+        keeper !== null
+          ? h(
+              "div",
+              { className: "tpk-alert" },
+              h("span", null, t("multiActive", { count: liveList.length, names: namesOf(liveList) })),
+              h(
+                "button",
+                {
+                  type: "button",
+                  className: "tpk-btn",
+                  disabled: busy === keeper.name,
+                  onClick: () => convergeToOne(keeper.name),
+                },
+                t("keepOnly", { name: displayOf(keeper) }),
+              ),
+            )
+          : null,
         h(
           "div",
           { className: "tpk-sec" },
           h("p", { className: "tpk-sec-t" }, t("nativeTitle")),
+          skinLive ? h("div", { className: "tpk-muted" }, t("skinOverrides")) : null,
           snapshot === null
             ? h("div", { className: "tpk-empty" }, t("loading"))
             : nativeRows.map((row) =>
@@ -539,8 +635,8 @@ window.__ModuleLoader__.load({
                   key: "native:" + row.id,
                   on: preference === row.id,
                   title: row.label,
-                  tag: preference === row.id ? t("active") : null,
-                  tagClass: "on",
+                  tag: preference === row.id ? (skinLive ? t("basePalette") : t("active")) : null,
+                  tagClass: skinLive ? "off" : "on",
                   onClick: () => pickNative(row.id),
                 }),
               ),
@@ -564,7 +660,7 @@ window.__ModuleLoader__.load({
                 const tagClass = item.live ? "on" : item.disabled ? "off" : "warn";
                 return h(
                   "div",
-                  { key: "market:" + item.name },
+                  { key: "market:" + item.name, "data-item": item.name },
                   h(Row, {
                     on: item.live,
                     title: item.displayName || item.name,
@@ -582,6 +678,7 @@ window.__ModuleLoader__.load({
                       {
                         type: "button",
                         className: "tpk-btn",
+                        title: (item.live ? t("disable") : t("enable")) + " · " + item.name,
                         disabled: isBusy,
                         onClick: () => togglePlugin(item.name, item.live !== true),
                       },

@@ -9,7 +9,8 @@ A **theme manager** for DeepSeek Harness: one panel in the right sidebar plus a 
 - **右侧栏入口**：在 DSH 右侧栏页签列表里注册「主题」页签（经 `dsh-better-sidebar` 的公开服务 `ctx.betterSidebar.registerTab`）。没装该插件时自动跳过，退到设置页。
 - **原生主题**：读取客户端 `theme` 服务的快照，列出跟随系统 / 浅色 / 深色 / 其它已注册主题（`ctx.theme.register` 注册的一等主题），点击即时切换、即时生效。
 - **已装主题插件**：通过 dsh-market 同源路由 `GET /dsh-market/installed`、`GET /dsh-market/registry` 列出所有已装主题插件（含被禁用的），显示注册表友好名与双语描述。
-- **单主题独享**：启用走 `POST /dsh-market/toggle`（market 自身负责主题排他），禁用与卸载也走 market 路由；状态写入 market 的 `state.json`，重启后保持。
+- **单主题独享（本地强制）**：启用任何主题插件时，先走 `POST /dsh-market/toggle`，随后由本插件**再逐个停用其余正在生效的主题**并复查一遍——因为 market 只对注册表分类里的主题做排他（编译进名单或带包根 `skin.json` 的），本地目录装的、私有仓库装的、名单外的皮肤走的是普通开关，不排他。停不下来的会在面板上报错并点名。面板打开时若发现多个主题同时生效，顶部会出现黄色告警条与「只保留「X」」一键收敛按钮。
+- **底座与皮肤分层**：有主题插件生效时，原生主题区标记为「底层配色」而不是「使用中」——同一时间只有一个主题插件在跑，原生配色只是它脚下的那层。
 - **可见时才轮询**：页签不在前台时停止 8s 轮询；`theme/change` 事件驱动原生主题区实时刷新。
 
 ## 安装 / Installation
