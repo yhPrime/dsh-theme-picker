@@ -160,6 +160,33 @@ window.__ModuleLoader__.load({
 .tpk-page{box-sizing:border-box;max-width:560px;padding:0 4px 16px}
 `;
 
+    /** 关闭态覆盖样式表的标记（与面板自己的样式表分开，便于排查）。 */
+    const SKIN_CSS_TAG = "dsh-theme-picker/skin-closed.css";
+
+    /**
+     * 关闭态覆盖（cyrene）。
+     *
+     * 主题自己的「关外观」开关只关背景/配色；欢迎页那组规则上游故意不跟开关走
+     * （其 README：「这两处不跟主题开关走」），于是隐藏后宿主的「探索未至之境」
+     * 被继续藏掉、昔涟的立绘与艺术字却还在。管理器是「同一时间只有一个主题在
+     * 画面上」的承诺方，关闭态由我们自己兜底，不靠主题自觉。
+     *
+     * 为什么不能只写 `.cyre-hero{display:none}`：主题的规则是
+     * `[class*="_headline"]:has(.cyre-hero){…}`，`:has()` 只看 DOM 存在性、
+     * 不看 display；不把这几条一起撤掉，宿主文案就回不来。
+     *
+     * 用 `revert` 而不是写死值：这几条属性宿主自己没设、只被主题覆盖，
+     * `revert` 等于「丢掉作者层声明」，不用猜宿主原本的值，宿主改版也不易失效。
+     * 作用域锁在「皮肤没开」：皮肤开着时这份样式完全不参与，观感零影响。
+     */
+    const CLOSED_CYRENE_CSS = `
+body[data-dsh-cyrene]:not([data-cyrene-skin="on"]) .cyre-hero{display:none !important}
+body[data-dsh-cyrene]:not([data-cyrene-skin="on"]) [class*="_headline"]:has(.cyre-hero){grid-template-columns:revert !important;pointer-events:revert !important;user-select:revert !important;-webkit-user-select:revert !important}
+body[data-dsh-cyrene]:not([data-cyrene-skin="on"]) [class*="_headline"]:has(.cyre-hero) [class*="_headlineText"],
+body[data-dsh-cyrene]:not([data-cyrene-skin="on"]) [class*="_headline"]:has(.cyre-hero) [class*="_titleGroup"] > span:not([class]),
+body[data-dsh-cyrene]:not([data-cyrene-skin="on"]) [class*="_headline"]:has(.cyre-hero) [class*="_previewBadge"]{display:revert !important}
+`;
+
     // ── 小工具 ────────────────────────────────────────────────────────────
 
     function messageOf(error) {
@@ -238,7 +265,13 @@ window.__ModuleLoader__.load({
     //   DOM 开关 body[data-cyrene-skin="on"|"off"]，它所有 CSS 都挂在这个属性下。
     // 没有适配器的皮肤只能退回 loader 开关（那是唯一通用的档位）。
     const SOFT_ADAPTERS = {
-      "dsh-cyrene-theme": { route: "/cyrene/state", field: "theme", attr: "data-cyrene-skin" },
+      "dsh-cyrene-theme": {
+        route: "/cyrene/state",
+        field: "theme",
+        attr: "data-cyrene-skin",
+        // 关闭态覆盖：主题自己的开关没管到的那部分外观，由管理器兜底。
+        closedCss: CLOSED_CYRENE_CSS,
+      },
     };
 
     /** 读一份软开关状态；不可用返回 null（不猜）。 */
@@ -919,6 +952,27 @@ window.__ModuleLoader__.load({
           tag.dataset.plugin = "dsh-theme-picker";
           tag.dataset.pluginCss = CSS_TAG;
           tag.textContent = CSS;
+          document.head.appendChild(tag);
+          return () => {
+            if (tag.parentNode !== null) tag.parentNode.removeChild(tag);
+          };
+        });
+
+        // 1b. 关闭态覆盖：常驻、按 body 属性激活，不跟面板开关联动，所以刷新后、
+        //     面板没打开过时也生效。主题被市场整包停用时 body 属性消失，自动惰性。
+        ctx.effect(() => {
+          if (typeof document === "undefined") return undefined;
+          const css = Object.keys(SOFT_ADAPTERS)
+            .map((name) => SOFT_ADAPTERS[name].closedCss)
+            .filter((text) => typeof text === "string" && text !== "")
+            .join("\n");
+          if (css === "") return undefined;
+          const existing = document.querySelector('style[data-plugin-css="' + SKIN_CSS_TAG + '"]');
+          if (existing !== null) return undefined;
+          const tag = document.createElement("style");
+          tag.dataset.plugin = "dsh-theme-picker";
+          tag.dataset.pluginCss = SKIN_CSS_TAG;
+          tag.textContent = css;
           document.head.appendChild(tag);
           return () => {
             if (tag.parentNode !== null) tag.parentNode.removeChild(tag);

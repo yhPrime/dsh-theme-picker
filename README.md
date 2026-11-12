@@ -13,8 +13,35 @@ A **theme manager** for DeepSeek Harness: one panel in the right sidebar plus a 
 - **一行只有名字和缩略图**：主题行的正脸是「缩略图 + 名称」，简介不再展开（包名放进名称的 tooltip）。缩略图取注册表条目 `screenshots[0]`（`raw.githubusercontent` 直链，`<img>` 不受跨域限制）；没有截图或加载失败时退回首字方块。名称顺序：本地官方中文名表 `OFFICIAL_ZH` → 包名结构化翻译（`dsh-deep-whale#maid-atelier` → 「深海鲸娘 · 女仆工坊」）→ 去前缀原样。
 - **统一的一行一套操作**：不管底层用哪种机制，每行只有两个按钮——「显示 / 隐藏」与「卸载」，徽标只有「使用中 / 未显示 / 待重启」。机制差异不暴露在按钮上，只在徽标的 tooltip 里说明。
 - **软开关（保持启用、只关外观）**：有自己开关的主题不会被停用，而是只关掉外观——插件保持启用、宿主半照常跑、不需要刷新页面。内置适配器：`dsh-cyrene-theme`（`GET/POST /cyrene/state` 带 `rev` 乐观锁，字段 `theme`，落到 `body[data-cyrene-skin]`）。没有适配器的皮肤走 loader 开关，隐藏后需要刷新页面才彻底生效（提示里会写）。
+- **关闭态覆盖（v2.3.0+）**：主题自己的开关未必管得住它的全部外观（昔涟主题的欢迎页就是「设计上不跟开关走」）。管理器在隐藏时**自己兜底**：随插件注入一份常驻样式表，按 `body[data-cyrene-skin]` 激活，把主题漏在开关外的部分收回默认（藏掉欢迎页、恢复宿主文案/徽标/交互）。主题升级不会让它失效，也不再需要给第三方包打补丁。
 - **底座与皮肤分层**：有主题插件在画面上生效时，原生主题区标记为「底层配色」而不是「使用中」——同一时间只有一个主题插件在画面上生效，原生配色只是它脚下的那层。
 - **可见时才轮询**：页签不在前台时停止 8s 轮询；`theme/change` 事件驱动原生主题区实时刷新。
+
+## 关闭态覆盖（v2.3.0+）
+
+主题管理器的承诺是「隐藏后回到 DSH 默认外观」。有些主题的外观并不全挂在它自己的开关下——`dsh-cyrene-theme` 的欢迎页（立绘 + 艺术字 + 它顺带藏掉的宿主「探索未至之境」）就是设计上「不跟主题开关走」的那一组。
+
+管理器因此自带一份**关闭态样式表**（`SKIN_CSS_TAG = "dsh-theme-picker/skin-closed.css"`），随插件装配注入、按 body 属性激活：
+
+- 只在 `body[data-dsh-cyrene]:not([data-cyrene-skin="on"])` 下生效；皮肤开着时完全不参与，观感零影响。
+- 藏掉 `.cyre-hero`，并用 `display / pointer-events / user-select: revert` 把主题盖掉的宿主文案、徽标与交互恢复回来。`revert` 表示「丢掉作者层声明」，所以不用猜宿主原本的值，宿主改版也不易失效。
+- 不能只写 `.cyre-hero{display:none}`：主题的规则是 `[class*="_headline"]:has(.cyre-hero){…}`，`:has()` 只看 DOM 存在性、不看 display。
+- 适配器表在 `SOFT_ADAPTERS` 里，按包名登记 `closedCss`；其它皮肤将来有同类问题时按同一机制加一条即可。
+
+这条路线**不修改第三方包**，所以主题升级不会让「隐藏」失效；代价是耦合主题的 DOM 类名（`.cyre-hero` / `_headline` / `_headlineText` / `_titleGroup` / `_previewBadge`）。上游大改结构时，失效表现是「隐藏不彻底」（不会白屏或崩溃），跑下面的测试会先报。
+
+## 测试 / Tests
+
+```bash
+node test/smoke.mjs            # 装配冒烟：样式表注入、去重、卸载清理、CSS 内容
+node test/verify-skin-gate.mjs # 真 Chrome + 仿真欢迎页：on / off / 无属性 / 来回切
+```
+
+`verify-skin-gate.mjs` 默认用已安装的 `dsh-cyrene-theme`；也可以指定原版备份验证：
+
+```bash
+node test/verify-skin-gate.mjs --cyrene=D:/path/to/dsh-cyrene-theme/lib/client.js
+```
 
 ## 安装 / Installation
 
@@ -42,6 +69,7 @@ dsh-theme-picker/
 ├── index.js            # 宿主半：空 apply（主题逻辑全在浏览器侧）
 ├── client.js           # 客户端半：模块加载器工厂 + 右侧栏页签 + 设置页
 ├── locale/{zh,en}.json # 插件管理器与设置页读的 meta.title / meta.description
+├── test/               # 自动测试：装配冒烟 + 真 Chrome 关闭态验算
 └── icon.svg            # 插件图标（原始绘制）
 ```
 

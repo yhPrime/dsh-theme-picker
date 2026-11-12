@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<!-- 仿真 DSH 0.2.2-rc.2 的新会话欢迎页（HeroShell）：_headline 是 flex，
+     titleGroup 里是无 class 的文案 span + 「预览版」徽标；旧构建的 _headlineText 也保留一份。 -->
+<style>
+  html,body{margin:0;background:#fff8fc;color:#222}
+  ._root_1ypvv_120{display:flex;align-items:center;justify-content:center;height:420px;min-width:0;padding:0 24px}
+  ._stack_1ypvv_130{display:flex;flex-direction:column;align-items:stretch;gap:12px;width:100%;max-width:720px;overflow:visible}
+  ._headline_1ypvv_140{display:flex;flex-wrap:wrap;column-gap:10px;row-gap:12px;align-items:center;justify-content:center;font-size:26px;line-height:32px;font-weight:500}
+  ._fishHitbox_1ypvv_150{display:inline-flex;flex:none;align-items:center;justify-content:center}
+  ._titleGroup_1ypvv_160{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;column-gap:7px;row-gap:4px;min-width:0}
+  ._previewBadge_1ypvv_170{align-self:flex-start;margin-top:2px;padding:1px 7px 0;border:0.5px solid #999;border-radius:999px;font-size:12px;line-height:18px;font-weight:500;white-space:nowrap}
+  ._body_1ypvv_180{position:relative;display:flex;flex-direction:column;gap:12px;min-width:0}
+</style>
+</head>
+<body>
+  <div class="_root_1ypvv_120">
+    <div class="_stack_1ypvv_130">
+      <div class="_headline_1ypvv_140" id="headline">
+        <span class="_fishHitbox_1ypvv_150">
+          <div class="cyre-hero">
+            <img class="cyre-hero-mark" id="hero-mark" alt="" src="data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==">
+            <span class="cyre-hero-title"><span class="cyre-hero-title-text">让昔涟来帮帮你吧</span><span class="cyre-hero-note">♪</span></span>
+          </div>
+        </span>
+        <span class="_titleGroup_1ypvv_160" id="title-group">
+          <span id="host-title">探索未至之境</span>
+          <span class="_previewBadge_1ypvv_170" id="badge">预览版</span>
+        </span>
+        <span class="_headlineText_1ypvv_190" id="legacy-text">旧构建文案</span>
+      </div>
+      <div class="_body_1ypvv_180">（输入框区域）</div>
+    </div>
+  </div>
+</body>
+</html>
