@@ -21,6 +21,17 @@ window.__ModuleLoader__.load({
     const React = require("react");
     const h = React.createElement;
 
+    /**
+     * 宿主静态模块表里的 primitives（含 FISH_LOGO_PATH / FISH_LOGO_VIEWBOX）。
+     * 拿不到就不占位、退回原行为——不让缺一个模块把整个插件拖垮。
+     */
+    let primitives = null;
+    try {
+      primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+    } catch (error) {
+      primitives = null;
+    }
+
     /** 右侧栏页签类型 id（也是 `SidebarTab.type`，会写进 better-sidebar 的持久化状态）。 */
     const TAB_ID = "dsh-theme-picker:themes";
     /** 语言命名空间。 */
@@ -29,6 +40,13 @@ window.__ModuleLoader__.load({
     const CSS_TAG = "dsh-theme-picker/theme-picker.css";
     /** 主题插件清单的轮询间隔（仅在面板可见时跑）。 */
     const POLL_MS = 8000;
+
+    /** 欢迎页形象槽（single/root）。 */
+    const HERO_SLOT = "conversation.hero.brand.mark";
+    /** cyrene 在 body 上的作用域属性。 */
+    const CYRENE_BODY_ATTR = "data-dsh-cyrene";
+    /** cyrene 的外观开关属性。 */
+    const CYRENE_SKIN_ATTR = "data-cyrene-skin";
 
     const zh = {
       title: "主题",
@@ -603,6 +621,30 @@ body[data-dsh-cyrene]:not([data-cyrene-skin="on"]) [class*="_headline"]:has(.cyr
       );
     }
 
+    /**
+     * 宿主版欢迎页的鲸鱼（只画形象位；文案与「预览版」徽标由宿主自己渲染）。
+     * 管理器在 cyrene 隐藏时用 priority -2 占住单占位槽，压过 cyrene 的 -1；
+     * 显示时撤回，交还主题。形象路径取自宿主的静态模块表（primitives）。
+     */
+    function HostHeroMark(props) {
+      const size = typeof props.size === "number" ? props.size : 34;
+      const view = (primitives && primitives.FISH_LOGO_VIEWBOX) || { width: 24, height: 18 };
+      const path = primitives && primitives.FISH_LOGO_PATH;
+      if (typeof path !== "string") return null;
+      return h(
+        "svg",
+        {
+          width: size,
+          height: (size * view.height) / view.width,
+          viewBox: "0 0 " + view.width + " " + view.height,
+          fill: "none",
+          "aria-hidden": true,
+          style: { display: "block", color: "var(--dsw-alias-label-primary)" },
+        },
+        h("path", { d: path, fill: "currentColor" }),
+      );
+    }
+
     function ThemeManager(props) {
       const { ctx, t, visible } = props;
       useLocaleTicks(ctx);
@@ -978,6 +1020,43 @@ body[data-dsh-cyrene]:not([data-cyrene-skin="on"]) [class*="_headline"]:has(.cyr
             if (tag.parentNode !== null) tag.parentNode.removeChild(tag);
           };
         });
+
+        // 1c. 欢迎页形象位：cyrene 隐藏时由我们以 priority -2 占住单占位槽，渲染宿主的鲸鱼；
+        //     显示时撤回、交还 cyrene（-1）。点一下即切，不碰第三方包。
+        ctx.effect(() => {
+          if (typeof document === "undefined" || document.body === null) return undefined;
+          const covered = () => {
+            const body = document.body;
+            return body.hasAttribute(CYRENE_BODY_ATTR) && body.getAttribute(CYRENE_SKIN_ATTR) !== "on";
+          };
+          let injection = null;
+          const sync = () => {
+            if (covered() && injection === null) {
+              if (!primitives || typeof primitives.FISH_LOGO_PATH !== "string") return;
+              try {
+                injection = ctx.slots.inject(HERO_SLOT, () =>
+                  ctx.slots.register({ name: HERO_SLOT, priority: -2 }, HostHeroMark),
+                );
+              } catch (error) {
+                injection = null;
+              }
+            } else if (!covered() && injection !== null) {
+              try { injection(); } catch { /* 交还失败也无害 */ }
+              injection = null;
+            }
+          };
+          sync();
+          if (typeof MutationObserver === "undefined") return () => { sync(); };
+          const observer = new MutationObserver(sync);
+          observer.observe(document.body, { attributes: true, attributeFilter: [CYRENE_BODY_ATTR, CYRENE_SKIN_ATTR] });
+          return () => {
+            observer.disconnect();
+            if (injection !== null) {
+              try { injection(); } catch { /* 同上 */ }
+              injection = null;
+            }
+          };
+        }, "theme-picker: host hero cover");
 
         // 2. 语言：注册中英词条，拿到本插件的翻译函数。
         const t = createTranslator(ctx);

@@ -14,6 +14,19 @@ class El {
     this.children = [];
     this.parentNode = null;
     this.textContent = "";
+    this.attrs = {};
+  }
+
+  setAttribute(name, value) {
+    this.attrs[name] = String(value);
+  }
+
+  getAttribute(name) {
+    return Object.prototype.hasOwnProperty.call(this.attrs, name) ? this.attrs[name] : null;
+  }
+
+  hasAttribute(name) {
+    return Object.prototype.hasOwnProperty.call(this.attrs, name);
   }
 
   appendChild(child) {
@@ -66,6 +79,7 @@ function makeReact() {
 
 function makeCtx() {
   const disposers = [];
+  const registrations = [];
   const ctx = {
     effect(fn) {
       const dispose = fn();
@@ -78,16 +92,24 @@ function makeCtx() {
       return undefined;
     },
     slots: {
-      inject(_name, callback) {
-        return callback();
+      registrations,
+      inject(name, callback) {
+        const dispose = callback();
+        return () => { if (typeof dispose === "function") dispose(); };
       },
-      register() {
-        return () => {};
+      register(registration, component) {
+        const record = { registration, component };
+        registrations.push(record);
+        return () => {
+          const index = registrations.indexOf(record);
+          if (index !== -1) registrations.splice(index, 1);
+        };
       },
     },
   };
   return {
     ctx,
+    registrations,
     disposeAll() {
       while (disposers.length > 0) {
         const dispose = disposers.pop();
@@ -113,6 +135,12 @@ export async function bootstrap(options = {}) {
     addEventListener() {},
     removeEventListener() {},
   };
+  const mutationObservers = [];
+  globalThis.MutationObserver = class {
+    constructor(callback) { this.callback = callback; this.observing = false; }
+    observe() { this.observing = true; mutationObservers.push(this); }
+    disconnect() { this.observing = false; }
+  };
   globalThis.document = document;
   globalThis.fetch = async () => {
     throw new Error("fetch 不应在装配阶段被调用");
@@ -123,18 +151,26 @@ export async function bootstrap(options = {}) {
   if (spec === null) throw new Error("bundle 没有调用 window.__ModuleLoader__.load");
 
   const react = makeReact();
+  const primitives = {
+    FISH_LOGO_PATH: "M0 0L1 1L2 0Z",
+    FISH_LOGO_VIEWBOX: { width: 24, height: 18 },
+  };
   const exports = spec.factory((name) => {
     if (name === "react") return react;
+    if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives;
     throw new Error("unexpected require(" + name + ")");
   });
-  const { ctx, disposeAll } = makeCtx();
+  const { ctx, registrations, disposeAll } = makeCtx();
   const instance = {
     document,
     exports,
     styleTags: () => document.head.children.filter((el) => el.tagName === "style"),
     disposeAll,
+    registrations,
+    primitives,
     apply: () => exports.apply(ctx),
     applyAgain: () => exports.apply(ctx),
+    fireMutations: () => { for (const observer of mutationObservers) if (observer.observing) observer.callback([]); },
   };
   if (options.apply !== false) instance.apply();
   return instance;
