@@ -250,28 +250,72 @@ body[data-dsh-cyrene]:not([data-cyrene-skin="on"]) [class*="_headline"]:has(.cyr
       return res.json();
     }
 
-    async function marketPost(path, body) {
-      const res = await fetch(path, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body === undefined ? {} : body),
-      });
-      let data = null;
+    // 市场的写通道同一时间只放一个操作（withMutationLock）：撞上时回 409 + busy，
+    // 文案是英文的 "another plugin operation is running"。占用者常见的有两类——
+    // 安装/更新正在跑 pnpm（几十秒到几分钟），或一条 drain 排队操作在等 agent 空闲
+    // （可能几小时，市场页里能看到并取消）。市场自己的客户端约定就是「轮询
+    // /dsh-market/status 等空闲再重试」，这里照做；等待期间行按钮本来就停在
+    // 「处理中…」，不会像把 409 原文直接甩到面板上那样看起来像坏掉了。
+    const BUSY_POLL_MS = 1000;
+    const BUSY_POLL_MAX = 45;
+    const BUSY_TIMEOUT_MESSAGE =
+      "市场正忙：另一个插件操作正在进行或在排队（可在插件市场页查看或取消），稍后再试 / " +
+      "The market is busy with another plugin operation (queued or running); " +
+      "check or cancel it on the market page, then retry";
+
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    /** 写通道是否空闲：busy（正在跑安装/更新）与 drainActive（排队等 agent）都算占用。读不到就不猜、当作忙。 */
+    async function marketLaneFree() {
       try {
-        data = await res.json();
+        const res = await fetch("/dsh-market/status", { headers: { accept: "application/json" }, cache: "no-store" });
+        if (!res.ok) return false;
+        const data = await res.json();
+        if (data === null || typeof data !== "object") return false;
+        return data.busy !== true && data.drainActive !== true;
       } catch (error) {
-        data = null;
+        return false;
       }
-      if (!res.ok || data === null || typeof data !== "object" || data.ok !== true) {
-        const detail =
-          data && typeof data.error === "string"
-            ? data.error
-            : data && typeof data.reason === "string"
-              ? data.reason
-              : "market POST " + path + " -> " + res.status;
-        throw new Error(detail);
+    }
+
+    async function marketPost(path, body) {
+      let waited = 0; // 撞上几次 409 之间累计的等待轮数，封顶 BUSY_POLL_MAX。
+      for (;;) {
+        const res = await fetch(path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body === undefined ? {} : body),
+        });
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (error) {
+          data = null;
+        }
+        const busy = res.status === 409 && data !== null && typeof data === "object" && data.busy === true;
+        if (busy === false) {
+          if (!res.ok || data === null || typeof data !== "object" || data.ok !== true) {
+            const detail =
+              data && typeof data.error === "string"
+                ? data.error
+                : data && typeof data.reason === "string"
+                  ? data.reason
+                  : "market POST " + path + " -> " + res.status;
+            throw new Error(detail);
+          }
+          return data;
+        }
+        // 409-busy：等写通道空闲再重试；等不到就用可读的双语提示收场，
+        // 不把市场的英文锁错误原文甩给用户。
+        while (waited < BUSY_POLL_MAX) {
+          await sleep(BUSY_POLL_MS);
+          waited += 1;
+          if (await marketLaneFree()) break;
+        }
+        if (waited >= BUSY_POLL_MAX) throw new Error(BUSY_TIMEOUT_MESSAGE);
       }
-      return data;
     }
 
     // ── 「软关闭」适配器 ─────────────────────────────────────────────────

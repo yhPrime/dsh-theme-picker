@@ -10,6 +10,7 @@ A **theme manager** for DeepSeek Harness: one panel in the right sidebar plus a 
 - **原生主题**：读取客户端 `theme` 服务的快照，列出跟随系统 / 浅色 / 深色 / 其它已注册主题（`ctx.theme.register` 注册的一等主题），点击即时切换、即时生效。
 - **已装主题插件**：通过 dsh-market 同源路由 `GET /dsh-market/installed`、`GET /dsh-market/registry` 列出所有已装主题插件（含被禁用的），显示注册表友好名与双语描述。
 - **单主题独享（本地强制）**：启用任何主题插件时，先走 `POST /dsh-market/toggle`，随后由本插件**再逐个收掉其余正在生效的主题**并复查一遍——因为 market 只对注册表分类里的主题做排他（编译进名单或带包根 `skin.json` 的），本地目录装的、私有仓库装的、名单外的皮肤走的是普通开关，不排他。收不掉的会在面板上报错并点名。面板打开时若发现多个主题同时在画面上生效，顶部会出现黄色告警条与「只保留「X」」一键收敛按钮。
+- **写通道避让（v2.3.2+）**：market 的写操作（toggle / uninstall）同一时间只放一个，撞上正在跑的安装/更新、或排队中的 drain 操作时会回 409-busy。管理器照 market 客户端自己的约定轮询 `GET /dsh-market/status`（`busy` 与 `drainActive` 都算占用），等写通道空闲后自动重试，最长约 45 秒（期间行按钮停在「处理中…」）；等不到就用一条可读的双语提示收场、指向插件市场页查看或取消占用操作——不再把 `another plugin operation is running` 这样的英文锁错误原文甩到面板上。
 - **一行只有名字和缩略图**：主题行的正脸是「缩略图 + 名称」，简介不再展开（包名放进名称的 tooltip）。缩略图取注册表条目 `screenshots[0]`（`raw.githubusercontent` 直链，`<img>` 不受跨域限制）；没有截图或加载失败时退回首字方块。名称顺序：本地官方中文名表 `OFFICIAL_ZH` → 包名结构化翻译（`dsh-deep-whale#maid-atelier` → 「深海鲸娘 · 女仆工坊」）→ 去前缀原样。
 - **统一的一行一套操作**：不管底层用哪种机制，每行只有两个按钮——「显示 / 隐藏」与「卸载」，徽标只有「使用中 / 未显示 / 待重启」。机制差异不暴露在按钮上，只在徽标的 tooltip 里说明。
 - **软开关（保持启用、只关外观）**：有自己开关的主题不会被停用，而是只关掉外观——插件保持启用、宿主半照常跑、不需要刷新页面。内置适配器：`dsh-cyrene-theme`（`GET/POST /cyrene/state` 带 `rev` 乐观锁，字段 `theme`，落到 `body[data-cyrene-skin]`）。没有适配器的皮肤走 loader 开关，隐藏后需要刷新页面才彻底生效（提示里会写）。
@@ -37,7 +38,8 @@ A **theme manager** for DeepSeek Harness: one panel in the right sidebar plus a 
 
 ```bash
 node test/smoke.mjs            # 装配冒烟：样式表注入、去重、卸载清理、CSS 内容
-node test/verify-skin-gate.mjs # 真 Chrome + 仿真欢迎页：on / off / 无属性 / 来回切
+node test/busy-retry.mjs       # 写通道避让：409-busy 轮询重试、超时收场、非 busy 透传
+node test/verify-skin-gate.mjs # 真 Chrome + 仿真欢迎页：on / off / 无属性 / 来回切（无 Chrome 时 SKIP）
 ```
 
 `verify-skin-gate.mjs` 默认用已安装的 `dsh-cyrene-theme`；也可以指定原版备份验证：

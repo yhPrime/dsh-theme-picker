@@ -9,6 +9,8 @@
  * 依赖本机 Chrome 与 profile 内的 puppeteer-core；不做网络访问。
  */
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
@@ -17,9 +19,31 @@ import { bootstrap } from "./support/dom-stub.mjs";
 const HERE = new URL(".", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 const FIXTURE = join(HERE, "fixture-hero.html");
 const SHOT = join(HERE, "screenshots");
-const CHROME = "C:/Users/trailblazer/AppData/Local/Google/Chrome/Application/chrome.exe";
-const DEFAULT_CYRENE = "C:/Users/trailblazer/.dsh/profiles/desktop/node_modules/dsh-cyrene-theme/lib/client.js";
-const PROFILE_PACKAGE = "C:/Users/trailblazer/.dsh/profiles/desktop/package.json";
+// 路径一律从本机推导（原版写死在开发机上，换机器直接 ENOENT）：
+//   TPK_TEST_PROFILE / TPK_TEST_CHROME / DSH_HOME 可覆盖；Chrome 找不到就跳过并说明原因。
+const DSH_HOME = process.env.DSH_HOME ?? join(homedir(), ".dsh");
+const PROFILE_DIR = process.env.TPK_TEST_PROFILE ?? join(DSH_HOME, "profiles", "desktop");
+const DEFAULT_CYRENE = join(PROFILE_DIR, "node_modules", "dsh-cyrene-theme", "lib", "client.js");
+const PROFILE_PACKAGE = join(PROFILE_DIR, "package.json");
+
+function findChrome() {
+  const candidates = [
+    process.env.TPK_TEST_CHROME,
+    join(homedir(), "AppData", "Local", "Google", "Chrome", "Application", "chrome.exe"),
+    join(process.env.ProgramFiles ?? "C:\\Program Files", "Google", "Chrome", "Application", "chrome.exe"),
+    join(process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)", "Google", "Chrome", "Application", "chrome.exe"),
+  ].filter((path) => typeof path === "string" && path !== "");
+  for (const path of candidates) {
+    if (existsSync(path)) return path;
+  }
+  return null;
+}
+
+const CHROME = findChrome();
+if (CHROME === null) {
+  console.log("SKIP  本机未找到 Chrome（可用环境变量 TPK_TEST_CHROME 指定路径）；本测试需要真实浏览器。");
+  process.exit(0);
+}
 const SKIN_TAG = "dsh-theme-picker/skin-closed.css";
 
 const cyrenePath = (process.argv.find((arg) => arg.startsWith("--cyrene=")) ?? "").slice("--cyrene=".length) || DEFAULT_CYRENE;
